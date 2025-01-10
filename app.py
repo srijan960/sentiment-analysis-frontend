@@ -1,27 +1,22 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 import requests
 
-BACKEND_URL = "http://localhost:8005/upload"  # Update with your backend URL
-
+BACKEND_URL = "http://localhost:8000/upload"
 
 def visualize_sentiment(data, transcript_content):
     """
-    Display sentiment analysis results, including comparison graphs and heatmaps.
+    Display sentiment analysis results, including polarity and intensity visualization.
     """
     st.subheader("Sentence-level Sentiments")
 
     # Load sentence details
-    sentence_details = pd.DataFrame(data["sentiment_results"]["sentence_details"])
+    sentiment_results = data["sentiment_results"]
+    sentence_details = pd.DataFrame(sentiment_results["sentence_details"])
 
     # Handle timestamps or use sequential indices
-    sentence_details["timestamp"] = sentence_details["sentence"].str.extract(r"\[(\d{2}:\d{2})\]")[0]
-    sentence_details["timestamp"] = pd.to_datetime(sentence_details["timestamp"], format="%M:%S", errors="coerce")
-    sentence_details["timestamp"] = sentence_details["timestamp"].fillna(
-        pd.Series(range(len(sentence_details)))
-    )
+    sentence_details["timestamp"] = pd.Series(range(len(sentence_details)))
 
     # Display raw details
     st.dataframe(sentence_details)
@@ -35,7 +30,7 @@ def visualize_sentiment(data, transcript_content):
     """
     st.markdown(transcription_html, unsafe_allow_html=True)
 
-    # Dual-speaker comparison
+    # Original graph: Sentiment comparison between speakers
     st.write("### Dual-Speaker Sentiment Comparison")
     speakers = sentence_details["speaker"].unique()
     if len(speakers) == 2:
@@ -43,119 +38,98 @@ def visualize_sentiment(data, transcript_content):
         speaker1_data = sentence_details[sentence_details["speaker"] == speaker1]
         speaker2_data = sentence_details[sentence_details["speaker"] == speaker2]
 
-        fig = go.Figure()
+        fig1 = go.Figure()
 
         # Plot Speaker 1 Sentiments
-        fig.add_trace(
+        fig1.add_trace(
             go.Scatter(
                 x=speaker1_data["timestamp"],
-                y=speaker1_data["positive_score"],
-                mode="lines+markers",
-                name=f"{speaker1} Positive",
-                hovertext=speaker1_data["sentence"],
-            )
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=speaker1_data["timestamp"],
-                y=speaker1_data["negative_score"],
-                mode="lines+markers",
-                name=f"{speaker1} Negative",
-                hovertext=speaker1_data["sentence"],
+                y=speaker1_data["positive_score"] - speaker1_data["negative_score"],
+                mode="lines",
+                name=f"{speaker1} (Sentiment)",
+                hovertext=speaker1_data["sentence"],  # Display only Speaker 1's sentence
+                line=dict(color="blue"),
             )
         )
 
         # Plot Speaker 2 Sentiments
-        fig.add_trace(
+        fig1.add_trace(
             go.Scatter(
                 x=speaker2_data["timestamp"],
-                y=speaker2_data["positive_score"],
-                mode="lines+markers",
-                name=f"{speaker2} Positive",
-                hovertext=speaker2_data["sentence"],
-            )
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=speaker2_data["timestamp"],
-                y=speaker2_data["negative_score"],
-                mode="lines+markers",
-                name=f"{speaker2} Negative",
-                hovertext=speaker2_data["sentence"],
+                y=speaker2_data["positive_score"] - speaker2_data["negative_score"],
+                mode="lines",
+                name=f"{speaker2} (Sentiment)",
+                hovertext=speaker2_data["sentence"],  # Display only Speaker 2's sentence
+                line=dict(color="red"),
             )
         )
 
-        fig.update_layout(
+        fig1.update_layout(
             title="Sentiment Comparison Between Speakers",
-            xaxis_title="Timestamp (or Sentence Index if Missing)",
-            yaxis_title="Sentiment Score",
-            hovermode="x unified",
+            xaxis=dict(title="Timestamp", rangeslider=dict(visible=True)),
+            yaxis=dict(title="Sentiment Score", zeroline=True),
+            hovermode="closest",  # Ensure only the nearest point's hover text is shown
+        )
+        st.plotly_chart(fig1)
+
+    # New graph: Polarity and intensity visualization
+    st.write("### Polarity and Intensity per Sentence")
+    fig2 = go.Figure()
+
+    for speaker in speakers:
+        speaker_data = sentence_details[sentence_details["speaker"] == speaker]
+
+        # Plot polarity
+        fig2.add_trace(
+            go.Bar(
+                x=speaker_data["timestamp"],
+                y=speaker_data["polarity"],
+                name=f"{speaker} (Polarity)",
+                marker=dict(color="green"),
+                hovertext=speaker_data["sentence"],  # Display only Speaker's sentence
+            )
         )
 
-        st.plotly_chart(fig)
+        # Plot intensity
+        fig2.add_trace(
+            go.Bar(
+                x=speaker_data["timestamp"],
+                y=speaker_data["intensity"],
+                name=f"{speaker} (Intensity)",
+                marker=dict(color="orange"),
+                hovertext=speaker_data["sentence"],  # Display only Speaker's sentence
+            )
+        )
 
-       # Heatmap of sentiment changes
-    st.write("### Sentiment Heatmap")
-    heatmap_data = sentence_details.copy()
-    heatmap_data["sentence_index"] = range(len(heatmap_data))
-
-    # Positive sentiment heatmap
-    positive_heatmap = heatmap_data.pivot(
-        index="speaker", columns="sentence_index", values="positive_score"
+    fig2.update_layout(
+        title="Polarity and Intensity for Each Sentence",
+        xaxis=dict(title="Timestamp"),
+        yaxis=dict(title="Scores"),
+        barmode="group",
     )
-    fig_positive = px.imshow(
-        positive_heatmap,
-        labels=dict(x="Sentence Index", y="Speaker", color="Positive Sentiment"),
-        title="Positive Sentiment Heatmap",
-    )
-    st.plotly_chart(fig_positive)
-
-    # Negative sentiment heatmap
-    negative_heatmap = heatmap_data.pivot(
-        index="speaker", columns="sentence_index", values="negative_score"
-    )
-    fig_negative = px.imshow(
-        negative_heatmap,
-        labels=dict(x="Sentence Index", y="Speaker", color="Negative Sentiment"),
-        title="Negative Sentiment Heatmap",
-    )
-    st.plotly_chart(fig_negative)
-
+    st.plotly_chart(fig2)
 
 def main():
     st.title("Call Transcript Sentiment Analysis")
     st.write("Upload a call transcript file (text format) to analyze speaker-level sentiment.")
 
-    # File upload widget
     uploaded_file = st.file_uploader("Choose a file", type=["txt"])
 
     if uploaded_file is not None:
-        # Display uploaded file content in a scrollable window
         content = uploaded_file.read().decode("utf-8")
         st.subheader("Uploaded Transcript")
 
         if st.button("Analyze Sentiment"):
-            # Reset file pointer
             uploaded_file.seek(0)
+            files = {"file": (uploaded_file.name, uploaded_file, "text/plain")}
+            response = requests.post(BACKEND_URL, files=files)
 
-            # Call backend for sentiment analysis
-            with st.spinner("Analyzing sentiment..."):
-                # Prepare file for the POST request
-                files = {"file": (uploaded_file.name, uploaded_file, "text/plain")}
-                response = requests.post(
-                    BACKEND_URL,
-                    files=files,
-                )
-
-                if response.status_code == 200:
-                    data = response.json()
-                    st.success("Analysis complete!")
-                    visualize_sentiment(data, content)
-                else:
-                    st.error(
-                        f"Failed to analyze sentiment. Error {response.status_code}: {response.text}"
-                    )
-
+            if response.status_code == 200:
+                data = response.json()
+                st.success("Analysis complete!")
+                visualize_sentiment(data, content)
+            else:
+                st.error(f"Failed to analyze sentiment. Error {response.status_code}: {response.text}")
 
 if __name__ == "__main__":
     main()
