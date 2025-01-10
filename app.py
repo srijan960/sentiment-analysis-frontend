@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 
-BACKEND_URL = "http://localhost:8000/upload"
+BACKEND_URL = "https://3092-20-198-48-150.ngrok-free.app"
 
 def visualize_sentiment(data, transcript_content):
     """
